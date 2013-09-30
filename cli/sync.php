@@ -26,7 +26,7 @@
  *   - you need to change the "www-data" to match the apache user account
  *   - use "su" if "sudo" not available
  *
- * @package    enrol_database
+ * @package    enrol_databasegroups
  * @copyright  2010 Petr Skoda {@link http://skodak.org}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -47,7 +47,7 @@ if ($unrecognized) {
 if ($options['help']) {
     $help =
 "Execute enrol sync with external database.
-The enrol_database plugin must be enabled and properly configured.
+The enrol_databasegroups plugin must be enabled and properly configured.
 
 Options:
 -v, --verbose         Print verbose progress information
@@ -65,8 +65,8 @@ Sample cron entry:
     die;
 }
 
-if (!enrol_is_enabled('database')) {
-    cli_error('enrol_database plugin is disabled, synchronisation stopped', 2);
+if (!enrol_is_enabled('databasegroups')) {
+    cli_error('enrol_databasegroups plugin is disabled, synchronisation stopped', 2);
 }
 
 if (empty($options['verbose'])) {
@@ -75,8 +75,8 @@ if (empty($options['verbose'])) {
     $trace = new text_progress_trace();
 }
 
-/** @var enrol_database_plugin $enrol  */
-$enrol = enrol_get_plugin('database');
+/** @var enrol_databasegroups_plugin $enrol  */
+$enrol = enrol_get_plugin('databasegroups');
 $result = 0;
 
 $result = $result | $enrol->sync_courses($trace);

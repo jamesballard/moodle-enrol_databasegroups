@@ -15,10 +15,10 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Database enrolment plugin version specification.
+ * Database enrolment plugin with groups version specification.
  *
- * @package    enrol_database
- * @copyright  2010 Petr Skoda {@link http://skodak.org}
+ * @package    enrol_databasegroups
+ * @copyright  2013 James Ballard
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
@@ -26,5 +26,5 @@ defined('MOODLE_INTERNAL') || die();
 
 $plugin->version   = 2013050100;        // The current plugin version (Date: YYYYMMDDXX)
 $plugin->requires  = 2013050100;        // Requires this Moodle version
-$plugin->component = 'enrol_database';  // Full name of the plugin (used for diagnostics)
+$plugin->component = 'enrol_databasegroups';  // Full name of the plugin (used for diagnostics)
 //TODO: should we add cron sync?

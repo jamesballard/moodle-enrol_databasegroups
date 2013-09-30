@@ -17,7 +17,7 @@
 /**
  * Capabilities for database enrolment plugin.
  *
- * @package    enrol_database
+ * @package    enrol_databasegroups
  * @copyright  2010 Petr Skoda {@link http://skodak.org}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -26,7 +26,7 @@ defined('MOODLE_INTERNAL') || die();
 
 $capabilities = array(
     /* This is used only when sync suspends users instead of full unenrolment. */
-    'enrol/database:unenrol' => array(
+    'enrol/databasegroups:unenrol' => array(
 
         'captype' => 'write',
         'contextlevel' => CONTEXT_COURSE,

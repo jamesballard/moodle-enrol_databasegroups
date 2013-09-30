@@ -19,19 +19,20 @@
  *
  * This plugin synchronises enrolment and roles with external database table.
  *
- * @package    enrol_database
+ * @package    enrol_databasegroups
  * @copyright  2010 Petr Skoda {@link http://skodak.org}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
+require_once($CFG->dirroot.'/group/lib.php');
 
 /**
  * Database enrolment plugin implementation.
  * @author  Petr Skoda - based on code by Martin Dougiamas, Martin Langhoff and others
  * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class enrol_database_plugin extends enrol_plugin {
+class enrol_databasegroups_plugin extends enrol_plugin {
     /**
      * Is it possible to delete enrol instance via standard UI?
      *
@@ -105,16 +106,19 @@ class enrol_database_plugin extends enrol_plugin {
         $table            = $this->get_config('remoteenroltable');
         $coursefield      = trim($this->get_config('remotecoursefield'));
         $userfield        = trim($this->get_config('remoteuserfield'));
+        $groupfield        = trim($this->get_config('remotegroupfield'));
         $rolefield        = trim($this->get_config('remoterolefield'));
 
         // Lowercased versions - necessary because we normalise the resultset with array_change_key_case().
         $coursefield_l    = strtolower($coursefield);
         $userfield_l      = strtolower($userfield);
+        $groupfield_l      = strtolower($groupfield);
         $rolefield_l      = strtolower($rolefield);
 
         $localrolefield   = $this->get_config('localrolefield');
         $localuserfield   = $this->get_config('localuserfield');
         $localcoursefield = $this->get_config('localcoursefield');
+        $localgroupfield   = $this->get_config('localgroupfield');
 
         $unenrolaction    = $this->get_config('unenrolaction');
         $defaultrole      = $this->get_config('defaultrole');
@@ -222,19 +226,19 @@ class enrol_database_plugin extends enrol_plugin {
                 // Weird.
                 continue;
             }
-            $current = $DB->get_records('role_assignments', array('contextid'=>$context->id, 'userid'=>$user->id, 'component'=>'enrol_database', 'itemid'=>$instance->id), '', 'id, roleid');
+            $current = $DB->get_records('role_assignments', array('contextid'=>$context->id, 'userid'=>$user->id, 'component'=>'enrol_databasegroups', 'itemid'=>$instance->id), '', 'id, roleid');
 
             $existing = array();
             foreach ($current as $r) {
                 if (in_array($r->roleid, $roles)) {
                     $existing[$r->roleid] = $r->roleid;
                 } else {
-                    role_unassign($r->roleid, $user->id, $context->id, 'enrol_database', $instance->id);
+                    role_unassign($r->roleid, $user->id, $context->id, 'enrol_databasegroups', $instance->id);
                 }
             }
             foreach ($roles as $rid) {
                 if (!isset($existing[$rid])) {
-                    role_assign($rid, $user->id, $context->id, 'enrol_database', $instance->id);
+                    role_assign($rid, $user->id, $context->id, 'enrol_databasegroups', $instance->id);
                 }
             }
         }
@@ -274,7 +278,7 @@ class enrol_database_plugin extends enrol_plugin {
                     $this->update_user_enrol($instance, $user->id, ENROL_USER_SUSPENDED);
                 }
                 if ($unenrolaction == ENROL_EXT_REMOVED_SUSPENDNOROLES) {
-                    role_unassign_all(array('contextid'=>$context->id, 'userid'=>$user->id, 'component'=>'enrol_database', 'itemid'=>$instance->id));
+                    role_unassign_all(array('contextid'=>$context->id, 'userid'=>$user->id, 'component'=>'enrol_databasegroups', 'itemid'=>$instance->id));
                 }
             }
         }
@@ -314,13 +318,16 @@ class enrol_database_plugin extends enrol_plugin {
         $coursefield      = trim($this->get_config('remotecoursefield'));
         $userfield        = trim($this->get_config('remoteuserfield'));
         $rolefield        = trim($this->get_config('remoterolefield'));
+        $groupfield        = trim($this->get_config('remotegroupfield'));
 
         // Lowercased versions - necessary because we normalise the resultset with array_change_key_case().
         $coursefield_l    = strtolower($coursefield);
+        $groupfield_l    = strtolower($groupfield);
         $userfield_l      = strtolower($userfield);
         $rolefield_l      = strtolower($rolefield);
 
         $localrolefield   = $this->get_config('localrolefield');
+        $localgroupfield   = $this->get_config('localgroupfield');
         $localuserfield   = $this->get_config('localuserfield');
         $localcoursefield = $this->get_config('localcoursefield');
 
@@ -446,6 +453,7 @@ class enrol_database_plugin extends enrol_plugin {
         if ($rolefield) {
             $sqlfields[] = $rolefield;
         }
+        $sqlfields[] = $groupfield;
         foreach ($existing as $course) {
             if ($ignorehidden and !$course->visible) {
                 continue;
@@ -455,6 +463,48 @@ class enrol_database_plugin extends enrol_plugin {
             }
             $context = context_course::instance($course->id);
 
+            // Get external groups and create in course.
+            $groupsqlfields = array($groupfield);
+            $groupparams = array($coursefield => $course->mapping);
+            $sql = $this->db_get_sql($table, $groupparams, $groupsqlfields, true);
+            if ($rs = $extdb->Execute($sql)) {
+                $trace->output('Creating groups ...');
+                if (!$rs->EOF) {
+                    while ($fields = $rs->FetchRow()) {
+                        $fields = array_change_key_case($fields, CASE_LOWER);
+                        $fields = $this->db_decode($fields);
+                        if (empty($fields[$groupfield_l])) {
+                            $trace->output('error: invalid external group record, groupid is mandatory: ' . json_encode($fields), 1); // Hopefully every geek can read JS, right?
+                            continue;
+                        }
+                        if ($DB->record_exists('groups', array('courseid'=>$course->id, 'idnumber'=>$fields[$groupfield_l]))) {
+                            // Already exists, skip.
+                            $trace->output('group '.$fields[$groupfield_l].' already exists -- skipping');
+                            continue;
+                        }
+                        $data = new stdClass();
+                        $data->courseid = $course->id;
+                        $data->name = $fields[$groupfield_l];
+                        $data->idnumber = $fields[$groupfield_l];
+                        $data->component = 'enrol_databasegroups';
+                        $data->timecreated = time();
+                        if(!groups_create_group($data)){
+                            $trace->output('group not created: '.$fields[$groupfield_l]);
+                        } else {
+                            $trace->output('group created: '.$fields[$groupfield_l]);
+                        }
+                    }
+                }
+                $trace->output('.. group creation finished.');
+            }
+
+            // Get course groups.
+            $groups = array();
+            $coursegroups = $DB->get_records('groups', array('courseid' => $course->id));
+            foreach ($coursegroups as $coursegroup) {
+                $groups[$coursegroup->$localgroupfield] = $coursegroup->id;
+            }
+
             // Get current list of enrolled users with their roles.
             $current_roles  = array();
             $current_status = array();
@@ -462,7 +512,7 @@ class enrol_database_plugin extends enrol_plugin {
             $sql = "SELECT u.$localuserfield AS mapping, u.id, ue.status, ue.userid, ra.roleid
                       FROM {user} u
                       JOIN {user_enrolments} ue ON (ue.userid = u.id AND ue.enrolid = :enrolid)
-                      JOIN {role_assignments} ra ON (ra.userid = u.id AND ra.itemid = ue.enrolid AND ra.component = 'enrol_database')
+                      JOIN {role_assignments} ra ON (ra.userid = u.id AND ra.itemid = ue.enrolid AND ra.component = 'enrol_databasegroups')
                      WHERE u.deleted = 0";
             $params = array('enrolid'=>$instance->id);
             if ($localuserfield === 'username') {
@@ -477,8 +527,27 @@ class enrol_database_plugin extends enrol_plugin {
             }
             $rs->close();
 
+            // Get current list of groups with members.
+            $current_groups = array();
+            $group_status = array();
+            $group_mapping = array();
+            $sql = "SELECT u.$localuserfield AS mapping, u.id as userid, g.name as groupname, g.id as groupid
+                      FROM {user} u
+                      JOIN {groups_members} gm ON (gm.userid = u.id AND gm.component = 'enrol_databasegroups')
+                      JOIN {groups} g ON (gm.groupid = g.id)
+                     WHERE g.courseid = :courseid";
+            $params = array('courseid'=>$course->id);
+            $rs = $DB->get_recordset_sql($sql, $params);
+            foreach ($rs as $gm) {
+                $current_groups[$gm->userid][$gm->groupid] = $gm->groupid;
+                $group_status[$gm->userid][$gm->groupid] = 1; // Group members are always in group.
+                $group_mapping[$gm->mapping] = $gm->userid;
+            }
+            $rs->close();
+
             // Get list of users that need to be enrolled and their roles.
             $requested_roles = array();
+            $requested_groups = array();
             $sql = $this->db_get_sql($table, array($coursefield=>$course->mapping), $sqlfields);
             if ($rs = $extdb->Execute($sql)) {
                 if (!$rs->EOF) {
@@ -513,8 +582,15 @@ class enrol_database_plugin extends enrol_plugin {
                         } else {
                             $roleid = $roles[$fields[$rolefield_l]];
                         }
+                        if (empty($fields[$groupfield_l]) or !isset($groups[$fields[$groupfield_l]])) {
+                            $trace->output("error: skipping user '$userid' in course '$course->mapping' - missing groupid", 1);
+                                continue;
+                        } else {
+                            $groupid = $groups[$fields[$groupfield_l]];
+                        }
 
                         $requested_roles[$userid][$roleid] = $roleid;
+                        $requested_groups[$userid][$groupid] = $groupid;
                     }
                 }
                 $rs->Close();
@@ -538,7 +614,7 @@ class enrol_database_plugin extends enrol_plugin {
                 // Assign extra roles.
                 foreach ($userroles as $roleid) {
                     if (empty($current_roles[$userid][$roleid])) {
-                        role_assign($roleid, $userid, $context->id, 'enrol_database', $instance->id);
+                        role_assign($roleid, $userid, $context->id, 'enrol_databasegroups', $instance->id);
                         $current_roles[$userid][$roleid] = $roleid;
                         $trace->output("assigning roles: $userid ==> $course->shortname as ".$allroles[$roleid]->shortname, 1);
                     }
@@ -547,7 +623,7 @@ class enrol_database_plugin extends enrol_plugin {
                 // Unassign removed roles.
                 foreach($current_roles[$userid] as $cr) {
                     if (empty($userroles[$cr])) {
-                        role_unassign($cr, $userid, $context->id, 'enrol_database', $instance->id);
+                        role_unassign($cr, $userid, $context->id, 'enrol_databasegroups', $instance->id);
                         unset($current_roles[$userid][$cr]);
                         $trace->output("unsassigning roles: $userid ==> $course->shortname", 1);
                     }
@@ -557,6 +633,37 @@ class enrol_database_plugin extends enrol_plugin {
                 if ($current_status[$userid] == ENROL_USER_SUSPENDED) {
                     $this->update_user_enrol($instance, $userid, ENROL_USER_ACTIVE);
                     $trace->output("unsuspending: $userid ==> $course->shortname", 1);
+                }
+            }
+
+            // Add users to groups.
+            foreach ($requested_groups as $userid=>$memberships) {
+                foreach ($memberships as $groupname => $membershipid) {
+                    if (empty($current_groups[$userid])) {
+                        if(!groups_add_member($membershipid, $userid, 'enrol_databasegroups')) {
+                            $trace->output("failed to add: $userid ==> group: $groupname", 1);
+                        } else {
+                            $trace->output("adding: $userid ==> group: $groupname", 1);
+                        }
+                    }
+                }
+            }
+
+            // Remove members from group.
+            foreach ($group_status as $userid=>$status) {
+                foreach ($status as $removegroupid=>$groupmemberstatus) {
+                    if (isset($requested_groups[$userid][$removegroupid])) {
+                        continue;
+                    }
+                    if (!groups_remove_member_allowed($removegroupid, $userid)) {
+                        $trace->output("not allowed to remove: $userid ==> group $removegroupid", 1);
+                        continue;
+                    }
+                    if (!groups_remove_member($removegroupid, $userid)) {
+                        $trace->output("could not remove: $userid ==> group $removegroupid", 1);
+                        continue;
+                    }
+                    $trace->output("removed: $userid ==> group $removegroupid", 1);
                 }
             }
 
@@ -587,7 +694,7 @@ class enrol_database_plugin extends enrol_plugin {
                         $trace->output("suspending: $userid ==> $course->shortname", 1);
                     }
                     if ($unenrolaction == ENROL_EXT_REMOVED_SUSPENDNOROLES) {
-                        role_unassign_all(array('contextid'=>$context->id, 'userid'=>$userid, 'component'=>'enrol_database', 'itemid'=>$instance->id));
+                        role_unassign_all(array('contextid'=>$context->id, 'userid'=>$userid, 'component'=>'enrol_databasegroups', 'itemid'=>$instance->id));
                         $trace->output("unsassigning all roles: $userid ==> $course->shortname", 1);
                     }
                 }
