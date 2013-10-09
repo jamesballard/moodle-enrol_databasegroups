@@ -40,7 +40,7 @@ class enrol_databasegroups_plugin extends enrol_plugin {
      * @return bool
      */
     public function instance_deleteable($instance) {
-        if (!enrol_is_enabled('database')) {
+        if (!enrol_is_enabled('databasegroups')) {
             return true;
         }
         if (!$this->get_config('dbtype') or !$this->get_config('remoteenroltable') or !$this->get_config('remotecoursefield') or !$this->get_config('remoteuserfield')) {
@@ -81,7 +81,7 @@ class enrol_databasegroups_plugin extends enrol_plugin {
         $instance = $ue->enrolmentinstance;
         $params = $manager->get_moodlepage()->url->params();
         $params['ue'] = $ue->id;
-        if ($this->allow_unenrol_user($instance, $ue) && has_capability('enrol/database:unenrol', $context)) {
+        if ($this->allow_unenrol_user($instance, $ue) && has_capability('enrol/databasegroups:unenrol', $context)) {
             $url = new moodle_url('/enrol/unenroluser.php', $params);
             $actions[] = new user_enrolment_action(new pix_icon('t/delete', ''), get_string('unenrol', 'enrol'), $url, array('class'=>'unenrollink', 'rel'=>$ue->id));
         }
@@ -187,7 +187,7 @@ class enrol_databasegroups_plugin extends enrol_plugin {
                     }
                     $enrols[$course->id][] = $roleid;
 
-                    if ($instance = $DB->get_record('enrol', array('courseid'=>$course->id, 'enrol'=>'database'), '*', IGNORE_MULTIPLE)) {
+                    if ($instance = $DB->get_record('enrol', array('courseid'=>$course->id, 'enrol'=>'databasegroups'), '*', IGNORE_MULTIPLE)) {
                         $instances[$course->id] = $instance;
                         continue;
                     }
@@ -248,7 +248,7 @@ class enrol_databasegroups_plugin extends enrol_plugin {
                   FROM {enrol} e
                   JOIN {user_enrolments} ue ON ue.enrolid = e.id
                   JOIN {course} c ON c.id = e.courseid
-                 WHERE ue.userid = :userid AND e.enrol = 'database'";
+                 WHERE ue.userid = :userid AND e.enrol = 'databasegroups'";
         $rs = $DB->get_recordset_sql($sql, array('userid'=>$user->id));
         foreach ($rs as $instance) {
             if (!$instance->cvisible and $ignorehidden) {
@@ -347,7 +347,7 @@ class enrol_databasegroups_plugin extends enrol_plugin {
         if ($onecourse) {
             $sql = "SELECT c.id, c.visible, c.$localcoursefield AS mapping, c.shortname, e.id AS enrolid
                       FROM {course} c
-                 LEFT JOIN {enrol} e ON (e.courseid = c.id AND e.enrol = 'database')
+                 LEFT JOIN {enrol} e ON (e.courseid = c.id AND e.enrol = 'databasegroups')
                      WHERE c.id = :id";
             if (!$course = $DB->get_record_sql($sql, array('id'=>$onecourse))) {
                 // Course does not exist, nothing to sync.
@@ -398,7 +398,7 @@ class enrol_databasegroups_plugin extends enrol_plugin {
             $existing = array();
             $sql = "SELECT c.id, c.visible, c.$localcoursefield AS mapping, e.id AS enrolid, c.shortname
                       FROM {course} c
-                      JOIN {enrol} e ON (e.courseid = c.id AND e.enrol = 'database')";
+                      JOIN {enrol} e ON (e.courseid = c.id AND e.enrol = 'databasegroups')";
             $rs = $DB->get_recordset_sql($sql); // Watch out for idnumber duplicates.
             foreach ($rs as $course) {
                 if (empty($course->mapping)) {
@@ -418,7 +418,7 @@ class enrol_databasegroups_plugin extends enrol_plugin {
             }
             $sql = "SELECT c.id, c.visible, c.$localcoursefield AS mapping, c.shortname
                       FROM {course} c
-                 LEFT JOIN {enrol} e ON (e.courseid = c.id AND e.enrol = 'database')
+                 LEFT JOIN {enrol} e ON (e.courseid = c.id AND e.enrol = 'databasegroups')
                      WHERE e.id IS NULL $localnotempty";
             $rs = $DB->get_recordset_sql($sql, $params);
             foreach ($rs as $course) {
