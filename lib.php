@@ -152,6 +152,8 @@ class enrol_databasegroups_plugin extends enrol_plugin {
             return;
         }
 
+        $requestedgroups = array();
+
         // Read remote enrols and create instances.
         $sql = $this->db_get_sql($table, array($userfield=>$user->$localuserfield), array(), false);
 
@@ -165,12 +167,14 @@ class enrol_databasegroups_plugin extends enrol_plugin {
                         // Missing course info.
                         continue;
                     }
-                    if (!$course = $DB->get_record('course', array($localcoursefield=>$fields[$coursefield_l]), 'id,visible')) {
+                    if (!$course = $DB->get_record('course', array($localcoursefield=>$fields[$coursefield_l]), 'id,idnumber,visible')) {
                         continue;
                     }
                     if (!$course->visible and $ignorehidden) {
                         continue;
                     }
+
+                    $requestedgroups[$course->id][$fields[$groupfield_l]] = $fields[$groupfield_l];
 
                     if (empty($fields[$rolefield_l]) or !isset($roles[$fields[$rolefield_l]])) {
                         if (!$defaultrole) {
@@ -204,7 +208,21 @@ class enrol_databasegroups_plugin extends enrol_plugin {
             return;
         }
 
-        // Enrol user into courses and sync roles.
+        // Get current group memberships for user.
+        $sql = "SELECT gm.id, g.courseid, g.idnumber
+                    FROM {groups} g, {groups_members} gm
+                    WHERE g.id = gm.groupid
+                    AND gm.userid = :userid
+                    AND gm.component = 'enrol_databasegroups'";
+        $memberships = $DB->get_records_sql($sql, array('userid' => $user->id));
+        $currentgroups = array();
+        if($memberships) {
+            foreach ($memberships as $membership) {
+                $currentgroups[$membership->courseid][$membership->idnumber] = $membership->idnumber;
+            }
+        }
+
+        // Enrol user into courses, groups and sync roles.
         foreach ($enrols as $courseid => $roles) {
             if (!isset($instances[$courseid])) {
                 // Ignored.
@@ -241,6 +259,37 @@ class enrol_databasegroups_plugin extends enrol_plugin {
                     role_assign($rid, $user->id, $context->id, 'enrol_databasegroups', $instance->id);
                 }
             }
+
+            foreach ($requestedgroups[$courseid] as $requestedgroup) {
+                if (isset($currentgroups[$courseid][$requestedgroup])) {
+                    // Already a member - skip.
+                    continue;
+                }
+                if (!$DB->record_exists('groups', array('courseid'=>$courseid, $localgroupfield => $requestedgroup))) {
+                    // Create group on the fly.
+                    $data = new stdClass();
+                    $data->courseid = $courseid;
+                    $data->name = $requestedgroup;
+                    $data->idnumber = $requestedgroup;
+                    $data->component = 'enrol_databasegroups';
+                    $data->timecreated = time();
+                    groups_create_group($data);
+                }
+                // Add to group.
+                $group = $DB->get_record('groups', array('courseid'=>$courseid, $localgroupfield => $requestedgroup));
+                groups_add_member($group, $user->id, 'enrol_databasegroups');
+            }
+
+            foreach ($currentgroups[$courseid] as $currentgroup) {
+                if (isset($requestedgroups[$courseid][$currentgroup])) {
+                    // Still a member - skip.
+                    continue;
+                }
+                // Otherwise add to group.
+                $group = $DB->get_record('groups', array('courseid'=>$courseid, $localgroupfield => $currentgroup));
+                groups_remove_member($group, $user->id);
+            }
+
         }
 
         // Unenrol as necessary.
@@ -477,7 +526,8 @@ class enrol_databasegroups_plugin extends enrol_plugin {
                             $trace->output('error: invalid external group record, groupid is mandatory: ' . json_encode($fields), 1); // Hopefully every geek can read JS, right?
                             continue;
                         }
-                        if ($DB->record_exists('groups', array('courseid'=>$course->id, 'idnumber'=>$fields[$groupfield_l]))) {
+                        if ($DB->record_exists('groups', array('courseid'=>$course->id, 'idnumber'=>$fields[$groupfield_l],
+                            'component' => 'enrol_databasegroups'))) {
                             // Already exists, skip.
                             $trace->output('group '.$fields[$groupfield_l].' already exists -- skipping');
                             continue;
